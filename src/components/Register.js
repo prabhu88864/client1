@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { STATUS_CODE, BASE_URL } from "../API/Constants";
+import { BASE_URL } from "../API/Constants";
 import axios from "../utils/axiosInstance";
-import { toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css"; 
 
 // build API base from BASE_URL, trimming any trailing slash
 const _apiBase = (BASE_URL || "").replace(/\/+$/, "");
@@ -72,7 +70,8 @@ export default function Register() {
     setIsRegistered(false);
 
     if (!name.trim() || !email.trim() || !phone.trim() || !password.trim()) {
-      return alert("Please fill all required fields");
+      alert("Please fill all required fields");
+      return;
     }
 
     try {
@@ -88,40 +87,32 @@ export default function Register() {
       fd.append("userType", userType);
 
       if (referralCode.trim()) fd.append("referralCode", referralCode.trim());
-      if (profilePic) fd.append("profilePic", profilePic); // MUST be profilePic
+      if (profilePic) fd.append("profilePic", profilePic); // must match multer field name
 
-      const res = await axios.get(`${_apiBase}/api/auth/register`,
-         {
-        method: "POST",
-        body: fd,
-        // ✅ do NOT set Content-Type manually
+      // ✅ IMPORTANT: Use POST (NOT axios.get)
+      const res = await axios.post(`${_apiBase}/api/auth/register`, fd, {
+        // do NOT set Content-Type manually; axios will set boundary
+        // withCredentials: true, // enable only if your backend uses cookies
       });
 
-      
-      
-
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setError(data?.msg || data?.message || "Registration failed");
-        setApiResponse(data || null);
-        return;
-      }
-
-      // show response
+      const data = res.data;
       setApiResponse(data);
 
-      // ✅ IMPORTANT FIX:
-      // ✅ After register success -> DO NOT auto-login (do NOT save token/user)
-      // ✅ Always force user to login manually
+      // ✅ After register success -> do NOT auto-login
       localStorage.removeItem("token");
       localStorage.removeItem("user");
 
-      // ✅ redirect to login (handled by useEffect)
       setIsRegistered(true);
     } catch (err) {
-      setError(err?.message || "Registration failed");
+      // axios error handling
+      const msg =
+        err?.response?.data?.msg ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Registration failed";
+
+      setError(msg);
+      setApiResponse(err?.response?.data || null);
     } finally {
       setLoading(false);
     }
@@ -446,22 +437,6 @@ export default function Register() {
                   <option value="ADMIN">ADMIN</option>
                 </select>
               </div>
-
-              {/* ✅ keep commented if you want
-              <div className="field" style={{ marginTop: 0 }}>
-                <div className="label">User Type</div>
-                <select
-                  className="select"
-                  value={userType}
-                  onChange={(e) => setUserType(e.target.value)}
-                >
-                  <option value="TRAINEE_ENTREPRENEUR">
-                    TRAINEE_ENTREPRENEUR
-                  </option>
-                  <option value="ENTREPRENEUR">ENTREPRENEUR</option>
-                </select>
-              </div>
-              */}
             </div>
 
             <div className="field">
