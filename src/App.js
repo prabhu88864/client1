@@ -25,8 +25,9 @@ import Myprofile from "./Pages/Myprofile";
 import AwardsAchivement from "./Pages/AwardsAchivement";
 import ChangePassword from "./Pages/ChangePassword";
 import DailyWise from "./Pages/DailyWise";
-
-
+import PaymentResult from "./Pages/PaymentResult";
+import CartAndAddress from "./Pages/CartAndAddress";
+import Checkout from "./Pages/Checkout";
 
 import AdminLogin from "./admin/AdminLogin";
 import AdminDashboard from "./admin/AdminDashboard";
@@ -114,6 +115,11 @@ function AppRoutes() {
 <Route path="/AwardsAchivement" element={<AwardsAchivement />} />
 <Route path="/ChangePassword" element={<ChangePassword />} />
 <Route path="/DailyWise" element={<DailyWise />} />
+<Route path="/PaymentResult" element={<PaymentResult />} />
+
+ <Route path="/CartAndAddress" element={<CartAndAddress />} />
+        <Route path="/checkout" element={<Checkout />} />
+
 
 
 

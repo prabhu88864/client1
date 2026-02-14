@@ -1,4 +1,4 @@
- export const BASE_URL = "https://dimgrey-curlew-718221.hostingersite.com/"; 
+ export const BASE_URL = "https://lightcoral-rhinoceros-730198.hostingersite.com/"; 
 // export const BASE_URL = "http://localhost:3000/"; 
 
 export const STATUS_CODE = {

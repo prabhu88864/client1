@@ -1,6 +1,26 @@
+// src/Pages/ProductDetails.js
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axiosInstance from "../utils/axiosInstance";
+
+/** ✅ backend images can be array OR JSON-string OR single string */
+const normalizeImages = (images) => {
+  if (!images) return [];
+  if (Array.isArray(images)) return images;
+
+  if (typeof images === "string") {
+    const s = images.trim();
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed;
+      if (typeof parsed === "string") return [parsed];
+    } catch {
+      const cleaned = s.replace(/^"+|"+$/g, "");
+      return cleaned ? [cleaned] : [];
+    }
+  }
+  return [];
+};
 
 export default function ProductDetails() {
   const { id } = useParams();
@@ -20,25 +40,25 @@ export default function ProductDetails() {
   const [relLoading, setRelLoading] = useState(false);
   const [related, setRelated] = useState([]);
 
+  /** ✅ Build origin (remove trailing /api if exists) */
   const API_ORIGIN = useMemo(() => {
     const base = (axiosInstance.defaults.baseURL || "").trim();
     if (!base) return "http://localhost:3000";
-    const noSlash = base.replace(/\/$/, "");
+    const noSlash = base.replace(/\/+$/, "");
     return noSlash.replace(/\/api$/, "");
   }, []);
 
   const imgUrl = (path) => {
     if (!path) return "";
-    if (path.startsWith("http")) return path;
-    if (path.startsWith("/")) return `${API_ORIGIN}${path}`;
-    return `${API_ORIGIN}/${path}`;
+    const v = String(path).trim();
+    if (v.startsWith("http://") || v.startsWith("https://")) return v;
+    if (v.startsWith("/")) return `${API_ORIGIN}${v}`;
+    return `${API_ORIGIN}/${v}`;
   };
 
   const money = (v) => {
-    if (v === null || v === undefined || v === "") return "";
-    const n = Number(v);
-    if (Number.isNaN(n)) return String(v);
-    return n.toFixed(2);
+    const n = Number(v ?? 0);
+    return Number.isFinite(n) ? n.toFixed(2) : "0.00";
   };
 
   const showToast = (msg) => {
@@ -58,7 +78,7 @@ export default function ProductDetails() {
         setActiveImg(0);
 
         const res = await axiosInstance.get(`/api/products/${id}`);
-        const item = res.data?.product || res.data;
+        const item = res?.data?.product || res?.data || null;
 
         if (mounted) {
           setP(item);
@@ -84,10 +104,8 @@ export default function ProductDetails() {
       try {
         setRelLoading(true);
 
-        // ✅ If your backend supports query, use it.
-        // If not, we still handle by filtering after fetch.
         const res = await axiosInstance.get("/api/products", {
-          params: { category: p.category }, // if backend ignores, ok
+          params: { category: p.category }, // backend can ignore, we filter anyway
         });
 
         const list = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.products) ? res.data.products : [];
@@ -99,7 +117,7 @@ export default function ProductDetails() {
           .slice(0, 8);
 
         if (mounted) setRelated(filtered);
-      } catch (e) {
+      } catch {
         if (mounted) setRelated([]);
       } finally {
         if (mounted) setRelLoading(false);
@@ -126,9 +144,18 @@ export default function ProductDetails() {
     }
   };
 
-  const images = (p?.images || []).map(imgUrl).filter(Boolean);
-  const mainImage = images[activeImg] || images[0] || "https://via.placeholder.com/900x600?text=No+Image";
+  /** ✅ FIXED: images always array */
+  const images = useMemo(() => {
+    const arr = normalizeImages(p?.images);
+    return arr.map(imgUrl).filter(Boolean);
+  }, [p, API_ORIGIN]);
 
+  /** ✅ keep activeImg valid */
+  useEffect(() => {
+    if (activeImg >= images.length) setActiveImg(0);
+  }, [images.length, activeImg]);
+
+  const mainImage = images[activeImg] || images[0] || "https://via.placeholder.com/900x600?text=No+Image";
   const inStock = Number(p?.stockQty || 0) > 0;
 
   if (loading) {
@@ -161,26 +188,13 @@ export default function ProductDetails() {
 
   return (
     <div style={S.page}>
-      {/* ✅ CSS inside file */}
       <style>{`
         *{ box-sizing: border-box; }
-        .pd-card{
-          display:grid;
-          grid-template-columns: 1.05fr .95fr;
-          gap: 0;
-        }
-        @media (max-width: 900px){
-          .pd-card{ grid-template-columns: 1fr; }
-        }
+        .pd-card{ display:grid; grid-template-columns: 1.05fr .95fr; gap: 0; }
+        @media (max-width: 900px){ .pd-card{ grid-template-columns: 1fr; } }
 
-        .rel-grid{
-          display:grid;
-          grid-template-columns: repeat(4, minmax(0,1fr));
-          gap: 12px;
-        }
-        @media (max-width: 900px){
-          .rel-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
-        }
+        .rel-grid{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+        @media (max-width: 900px){ .rel-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
       `}</style>
 
       <div style={S.container}>
@@ -191,9 +205,8 @@ export default function ProductDetails() {
 
         {toast ? <div style={S.toast}>{toast}</div> : null}
 
-        {/* ✅ MAIN PRODUCT CARD */}
         <div style={S.card} className="pd-card">
-          {/* LEFT (image first on mobile too) */}
+          {/* LEFT */}
           <div style={S.left}>
             <div style={S.imageBox}>
               <img
@@ -225,10 +238,7 @@ export default function ProductDetails() {
                     onClick={() => setActiveImg(idx)}
                     style={{
                       ...S.thumbBtn,
-                      outline:
-                        idx === activeImg
-                          ? "2px solid rgba(255,210,74,.65)"
-                          : "1px solid rgba(220,235,255,.14)",
+                      outline: idx === activeImg ? "2px solid rgba(255,210,74,.65)" : "1px solid rgba(220,235,255,.14)",
                     }}
                     type="button"
                   >
@@ -244,7 +254,7 @@ export default function ProductDetails() {
             )}
           </div>
 
-          {/* RIGHT (details) */}
+          {/* RIGHT */}
           <div style={S.right}>
             <div style={S.title}>{p.name}</div>
 
@@ -263,7 +273,6 @@ export default function ProductDetails() {
             <div style={S.descTitle}>Description</div>
             <div style={S.desc}>{p.description || "—"}</div>
 
-            {/* ✅ DETAILS TABLE */}
             <div style={S.specCard}>
               <div style={S.specTitle}>Product Details</div>
               <div style={S.specGrid}>
@@ -279,8 +288,8 @@ export default function ProductDetails() {
                 type="button"
                 style={{
                   ...S.primaryBtn,
-                  opacity: (!inStock || adding) ? 0.6 : 1,
-                  cursor: (!inStock || adding) ? "not-allowed" : "pointer",
+                  opacity: !inStock || adding ? 0.6 : 1,
+                  cursor: !inStock || adding ? "not-allowed" : "pointer",
                 }}
                 disabled={!inStock || adding}
                 onClick={addToCart}
@@ -288,18 +297,15 @@ export default function ProductDetails() {
                 {adding ? "Adding..." : inStock ? "Add to Cart" : "Out of Stock"}
               </button>
 
-              <button type="button" style={S.secondaryBtn} onClick={() => navigate("/cart")}>
-                Go to Cart
-              </button>
+              <button type="button" style={S.secondaryBtn} onClick={() => navigate("/cart")}>Go to Cart</button>
 
-              <button type="button" style={S.secondaryBtn} onClick={() => navigate("/products")}>
-                Go to Products
-              </button>
+              {/* ✅ your products list route is /products (change if different) */}
+              <button type="button" style={S.secondaryBtn} onClick={() => navigate("/Dashboard")}>Go to Products</button>
             </div>
           </div>
         </div>
 
-        {/* ✅ RELATED PRODUCTS */}
+        {/* ✅ RELATED */}
         <div style={S.relWrap}>
           <div style={S.relHead}>
             <div style={S.relTitle}>Related Products</div>
@@ -313,12 +319,14 @@ export default function ProductDetails() {
           ) : (
             <div className="rel-grid">
               {related.map((rp) => {
-                const img = imgUrl(rp?.images?.[0]);
+                const rImgs = normalizeImages(rp?.images);
+                const img = imgUrl(rImgs?.[0]);
+
                 return (
                   <button
                     key={rp.id}
                     style={S.relCard}
-                    onClick={() => navigate(`/products/${rp.id}`)}
+                    onClick={() => navigate(`/ProductDetails/${rp.id}`)}  // ✅ IMPORTANT
                     type="button"
                   >
                     <div style={S.relImgWrap}>
@@ -365,11 +373,7 @@ const S = {
     color: "#e9eefc",
     padding: "18px 0 50px",
   },
-  container: {
-    width: "min(1200px, 100%)",
-    margin: "0 auto",
-    padding: "0 16px",
-  },
+  container: { width: "min(1200px, 100%)", margin: "0 auto", padding: "0 16px" },
   info: {
     width: "min(100%, 980px)",
     margin: "14px auto 0",
@@ -385,14 +389,7 @@ const S = {
     background: "rgba(255,255,255,.06)",
     border: "1px solid rgba(220,235,255,.12)",
   },
-  topRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 14,
-    gap: 12,
-    flexWrap: "wrap",
-  },
+  topRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" },
   backBtn: {
     border: "1px solid rgba(220,235,255,.18)",
     background: "rgba(15,23,42,.7)",
@@ -403,52 +400,17 @@ const S = {
     fontWeight: 800,
   },
 
-  card: {
-    borderRadius: 18,
-    border: "1px solid rgba(220,235,255,.14)",
-    background: "rgba(12,18,36,.72)",
-    boxShadow: "0 10px 30px rgba(0,0,0,.25)",
-    overflow: "hidden",
-  },
+  card: { borderRadius: 18, border: "1px solid rgba(220,235,255,.14)", background: "rgba(12,18,36,.72)", boxShadow: "0 10px 30px rgba(0,0,0,.25)", overflow: "hidden" },
   left: { padding: 14, borderRight: "1px solid rgba(220,235,255,.10)" },
   right: { padding: 18 },
 
   imageBox: { position: "relative", borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,.06)" },
   mainImg: { width: "100%", height: 420, objectFit: "cover", display: "block" },
-  badge: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 900,
-    border: "1px solid rgba(255,210,74,.35)",
-    background: "rgba(255,210,74,.12)",
-    color: "#ffd24a",
-  },
-  stock: {
-    position: "absolute",
-    bottom: 12,
-    left: 12,
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 800,
-    border: "1px solid rgba(220,235,255,.14)",
-  },
+  badge: { position: "absolute", top: 12, left: 12, padding: "6px 10px", borderRadius: 999, fontSize: 11, fontWeight: 900, border: "1px solid rgba(255,210,74,.35)", background: "rgba(255,210,74,.12)", color: "#ffd24a" },
+  stock: { position: "absolute", bottom: 12, left: 12, padding: "6px 10px", borderRadius: 999, fontSize: 11, fontWeight: 800, border: "1px solid rgba(220,235,255,.14)" },
 
   thumbs: { marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" },
-  thumbBtn: {
-    width: 72,
-    height: 52,
-    borderRadius: 12,
-    overflow: "hidden",
-    padding: 0,
-    border: "none",
-    background: "transparent",
-    cursor: "pointer",
-  },
+  thumbBtn: { width: 72, height: 52, borderRadius: 12, overflow: "hidden", padding: 0, border: "none", background: "transparent", cursor: "pointer" },
   thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
 
   title: { fontSize: 26, fontWeight: 950, marginBottom: 10 },
@@ -460,90 +422,27 @@ const S = {
   descTitle: { marginTop: 16, fontSize: 14, fontWeight: 900, opacity: 0.9 },
   desc: { marginTop: 8, fontSize: 14, lineHeight: 1.6, opacity: 0.85 },
 
-  specCard: {
-    marginTop: 16,
-    borderRadius: 14,
-    border: "1px solid rgba(220,235,255,.12)",
-    background: "rgba(255,255,255,.05)",
-    padding: 12,
-  },
+  specCard: { marginTop: 16, borderRadius: 14, border: "1px solid rgba(220,235,255,.12)", background: "rgba(255,255,255,.05)", padding: 12 },
   specTitle: { fontWeight: 950, marginBottom: 10, opacity: 0.95 },
-  specGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0,1fr))",
-    gap: 10,
-  },
-  specItem: {
-    borderRadius: 12,
-    border: "1px solid rgba(220,235,255,.10)",
-    background: "rgba(10,16,35,.55)",
-    padding: 10,
-  },
+  specGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 10 },
+  specItem: { borderRadius: 12, border: "1px solid rgba(220,235,255,.10)", background: "rgba(10,16,35,.55)", padding: 10 },
   specLabel: { fontSize: 12, opacity: 0.75, fontWeight: 900 },
   specValue: { marginTop: 6, fontWeight: 900, opacity: 0.95 },
 
   actions: { marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" },
-  primaryBtn: {
-    border: 0,
-    background: "#ffd24a",
-    color: "#081023",
-    padding: "12px 14px",
-    borderRadius: 12,
-    fontWeight: 950,
-  },
-  secondaryBtn: {
-    border: "1px solid rgba(220,235,255,.18)",
-    background: "rgba(15,23,42,.7)",
-    color: "#e9eefc",
-    padding: "12px 14px",
-    borderRadius: 12,
-    cursor: "pointer",
-    fontWeight: 900,
-  },
+  primaryBtn: { border: 0, background: "#ffd24a", color: "#081023", padding: "12px 14px", borderRadius: 12, fontWeight: 950 },
+  secondaryBtn: { border: "1px solid rgba(220,235,255,.18)", background: "rgba(15,23,42,.7)", color: "#e9eefc", padding: "12px 14px", borderRadius: 12, cursor: "pointer", fontWeight: 900 },
 
-  // related
   relWrap: { marginTop: 18 },
-  relHead: {
-    display: "flex",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 10,
-    flexWrap: "wrap",
-    marginBottom: 10,
-  },
+  relHead: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10 },
   relTitle: { fontSize: 18, fontWeight: 950 },
   relSub: { fontSize: 12, opacity: 0.7 },
 
-  relCard: {
-    border: "1px solid rgba(220,235,255,.12)",
-    background: "rgba(12,18,36,.72)",
-    borderRadius: 16,
-    overflow: "hidden",
-    cursor: "pointer",
-    padding: 0,
-    textAlign: "left",
-  },
+  relCard: { border: "1px solid rgba(220,235,255,.12)", background: "rgba(12,18,36,.72)", borderRadius: 16, overflow: "hidden", cursor: "pointer", padding: 0, textAlign: "left" },
   relImgWrap: { position: "relative", background: "rgba(255,255,255,.05)" },
   relImg: { width: "100%", height: 160, objectFit: "cover", display: "block" },
-  relBadge: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    padding: "5px 9px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 950,
-    border: "1px solid rgba(255,210,74,.35)",
-    background: "rgba(255,210,74,.12)",
-    color: "#ffd24a",
-  },
+  relBadge: { position: "absolute", top: 10, left: 10, padding: "5px 9px", borderRadius: 999, fontSize: 11, fontWeight: 950, border: "1px solid rgba(255,210,74,.35)", background: "rgba(255,210,74,.12)", color: "#ffd24a" },
   relBody: { padding: 12 },
-  relName: {
-    fontSize: 14,
-    fontWeight: 950,
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    textOverflow: "ellipsis",
-  },
+  relName: { fontSize: 14, fontWeight: 950, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" },
   relMeta: { marginTop: 8, display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 },
 };

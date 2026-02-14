@@ -1,8 +1,34 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../utils/axiosInstance";
+import { BASE_URL } from "../API/Constants";
 
 const BADGE_ORDER = ["POPULAR", "NEW_ARRIVAL", "BEST_SELLER", "TRENDING", "LIMITED_OFFER"];
+
+// ✅ convert images field to real array (because backend sending string JSON)
+const normalizeImages = (images) => {
+  if (!images) return [];
+  if (Array.isArray(images)) return images;
+
+  // if backend sends JSON string like "[\"/uploads/...jpg\"]"
+  if (typeof images === "string") {
+    const s = images.trim();
+
+    // try JSON parse
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed;
+      if (typeof parsed === "string") return [parsed];
+    } catch {
+      // fallback: if it is just "/uploads/.."
+      if (s.startsWith("/")) return [s];
+      // remove quotes if any
+      return [s.replace(/^"+|"+$/g, "")];
+    }
+  }
+
+  return [];
+};
 
 export default function ProductsPage() {
   const navigate = useNavigate();
@@ -11,25 +37,22 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // ✅ cart map: productId -> { cartItemId, qty }
   const [cartMap, setCartMap] = useState({});
   const [busyKey, setBusyKey] = useState("");
-
   const [toast, setToast] = useState("");
 
-  // ✅ Build ORIGIN
+  // ✅ base url from Constants
   const API_ORIGIN = useMemo(() => {
-    const base = (axiosInstance.defaults.baseURL || "").trim();
-    if (!base) return "http://localhost:3000";
-    const noSlash = base.replace(/\/$/, "");
-    return noSlash.replace(/\/api$/, "");
+    const b = (BASE_URL || "").trim();
+    return b.replace(/\/+$/, "");
   }, []);
 
   const imgUrl = (path) => {
     if (!path) return "";
-    if (path.startsWith("http")) return path;
-    if (path.startsWith("/")) return `${API_ORIGIN}${path}`;
-    return `${API_ORIGIN}/${path}`;
+    const p = String(path).trim();
+    if (p.startsWith("http://") || p.startsWith("https://")) return p;
+    if (p.startsWith("/")) return `${API_ORIGIN}${p}`;
+    return `${API_ORIGIN}/${p}`;
   };
 
   const money = (v) => {
@@ -53,8 +76,13 @@ export default function ProductsPage() {
       try {
         setLoading(true);
         setErr("");
+
         const res = await axiosInstance.get("/api/products");
         const list = Array.isArray(res.data) ? res.data : res.data?.products || [];
+
+        console.log("✅ /api/products raw response =", res.data);
+        console.log("✅ products list (array) =", list);
+
         if (mounted) setProducts(list);
       } catch (e) {
         if (mounted) setErr(e?.response?.data?.msg || e?.response?.data?.message || e?.message || "Failed to load");
@@ -66,7 +94,7 @@ export default function ProductsPage() {
     return () => (mounted = false);
   }, []);
 
-  // ---------------- LOAD CART (for qty controls) ----------------
+  // ---------------- LOAD CART ----------------
   const loadCart = async () => {
     try {
       const res = await axiosInstance.get("/api/cart");
@@ -75,15 +103,15 @@ export default function ProductsPage() {
 
       const next = {};
       for (const it of items) {
-        const p = it?.product || it?.Product || it?.productDetails || {};
-        const pid = p?.id ?? it?.productId ?? it?.ProductId ?? it?.product_id;
+        const prod = it?.product || it?.Product || it?.productDetails || {};
+        const pid = prod?.id ?? it?.productId ?? it?.ProductId ?? it?.product_id;
         const cartItemId = it?.id ?? it?.cartItemId ?? it?._id;
         const qty = Number(it?.qty ?? it?.quantity ?? it?.cartQty ?? 1);
 
         if (pid != null) next[String(pid)] = { cartItemId, qty };
       }
       setCartMap(next);
-    } catch (e) {
+    } catch {
       // ignore
     }
   };
@@ -122,7 +150,7 @@ export default function ProductsPage() {
       if (newQty >= 1) return addToCart(e, productId);
       return;
     }
-    if (newQty < 1) return; // no delete here
+    if (newQty < 1) return;
 
     try {
       setBusyKey(`qty:${productId}`);
@@ -171,7 +199,6 @@ export default function ProductsPage() {
 
       <div style={S.fullBleed}>
         <div style={S.container}>
-          {/* HEADER */}
           <div style={S.hero}>
             <div>
               <div style={S.h1}>Products</div>
@@ -218,7 +245,7 @@ export default function ProductsPage() {
 }
 
 function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, onAdd, onQty, onOpen }) {
-  if (!items?.length) return null;
+  if (!items || items.length === 0) return null;
 
   return (
     <div style={S.section}>
@@ -238,25 +265,33 @@ function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, 
           {items.map((p) => {
             const inStock = Number(p?.stockQty || 0) > 0;
             const pid = String(p?.id);
-            const row = cartMap[pid];
+            const row = cartMap?.[pid];
             const qty = Number(row?.qty || 0);
 
             const isBusy = busyKey === `add:${p.id}` || busyKey === `qty:${p.id}`;
 
-            const firstImage = p?.images?.[0];
-            const image = imgUrl(firstImage);
+            // ✅ FIX: images is string JSON, convert to array
+            const imgs = normalizeImages(p?.images);
+            const first = imgs?.[0];
+            const image = imgUrl(first);
+
+            // ✅ debug
+            console.log("🖼️ images raw =", p?.images, " normalized =", imgs, " final =", image);
 
             return (
-              <button
+              // ✅ FIX: use div instead of button (no nested button warning)
+              <div
                 key={p.id}
                 className="cardBtn"
                 style={S.cardBtn}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => onOpen(p.id)}
-                title="Open"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onOpen(p.id);
+                }}
               >
                 <div style={S.card}>
-                  {/* ✅ IMAGE */}
                   <div style={S.imgWrap}>
                     <img
                       src={image || "https://via.placeholder.com/600x400?text=No+Image"}
@@ -267,7 +302,7 @@ function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, 
                         e.currentTarget.src = "https://via.placeholder.com/600x400?text=No+Image";
                       }}
                     />
-                    {/* small stock pill */}
+
                     <div
                       style={{
                         ...S.stockPill,
@@ -280,15 +315,14 @@ function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, 
                     </div>
                   </div>
 
-                  {/* ✅ BIGGER BODY BOX (you asked increase size) */}
                   <div style={S.body}>
-                    <div style={S.name} title={p.name}>
-                      {p.name}
+                    <div style={S.name} title={p?.name}>
+                      {p?.name}
                     </div>
 
                     <div style={S.priceRow}>
-                      <div style={S.price}>₹ {money(p.price)}</div>
-                      {p?.mrp ? <div style={S.mrp}>₹ {money(p.mrp)}</div> : <div />}
+                      <div style={S.price}>₹ {money(p?.price)}</div>
+                      {p?.mrp ? <div style={S.mrp}>₹ {money(p?.mrp)}</div> : <div />}
                     </div>
 
                     <div style={S.controlsRow}>
@@ -299,11 +333,7 @@ function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, 
                           type="button"
                           onClick={(e) => onAdd(e, p.id)}
                           disabled={isBusy}
-                          style={{
-                            ...S.addBtn,
-                            opacity: isBusy ? 0.7 : 1,
-                            cursor: isBusy ? "not-allowed" : "pointer",
-                          }}
+                          style={{ ...S.addBtn, opacity: isBusy ? 0.7 : 1 }}
                         >
                           {isBusy ? "Adding…" : "Add"}
                         </button>
@@ -315,25 +345,11 @@ function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, 
                             e.stopPropagation();
                           }}
                         >
-                          <button
-                            type="button"
-                            style={{ ...S.qtyBtn, opacity: isBusy ? 0.6 : 1 }}
-                            disabled={isBusy}
-                            onClick={(e) => onQty(e, p.id, qty - 1)}
-                            title="Decrease"
-                          >
+                          <button type="button" style={S.qtyBtn} disabled={isBusy} onClick={(e) => onQty(e, p.id, qty - 1)}>
                             −
                           </button>
-
                           <div style={S.qtyValue}>{qty}</div>
-
-                          <button
-                            type="button"
-                            style={{ ...S.qtyBtn, opacity: isBusy ? 0.6 : 1 }}
-                            disabled={isBusy}
-                            onClick={(e) => onQty(e, p.id, qty + 1)}
-                            title="Increase"
-                          >
+                          <button type="button" style={S.qtyBtn} disabled={isBusy} onClick={(e) => onQty(e, p.id, qty + 1)}>
                             +
                           </button>
                         </div>
@@ -343,7 +359,7 @@ function ProductSection({ title, badge, items, money, imgUrl, cartMap, busyKey, 
                     </div>
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -357,6 +373,7 @@ function prettyBadge(b) {
   return String(b).replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/* keep your same CSS + S styles */
 const css = `
   *{ margin:0; padding:0; box-sizing:border-box; }
   html,body,#root{ height:100%; width:100%; }
@@ -368,7 +385,6 @@ const css = `
   }
   button{ font-family: inherit; }
 
-  /* ✅ Desktop 6 columns, Mobile 3 columns */
   .gridWrap{
     display:grid;
     gap: 12px;
@@ -389,7 +405,6 @@ const css = `
 
   .cardBtn{
     width:100%;
-    border:0;
     padding:0;
     background:transparent;
     cursor:pointer;
@@ -403,22 +418,9 @@ const css = `
 `;
 
 const S = {
-  page: {
-    minHeight: "100vh",
-    color: "#e9eefc",
-    background: "linear-gradient(180deg,#040915 0%,#060c19 50%,#050914 100%)",
-  },
-  fullBleed: {
-    width: "100vw",
-    marginLeft: "calc(50% - 50vw)",
-    overflow: "hidden",
-    padding: "18px 0 60px",
-  },
-  container: {
-    width: "min(1400px, 100%)",
-    margin: "0 auto",
-    padding: "0 16px",
-  },
+  page: { minHeight: "100vh", color: "#e9eefc", background: "linear-gradient(180deg,#040915 0%,#060c19 50%,#050914 100%)" },
+  fullBleed: { width: "100vw", marginLeft: "calc(50% - 50vw)", overflow: "hidden", padding: "18px 0 60px" },
+  container: { width: "min(1400px, 100%)", margin: "0 auto", padding: "0 16px" },
 
   hero: {
     borderRadius: 18,
@@ -446,156 +448,42 @@ const S = {
     cursor: "pointer",
   },
 
-  toast: {
-    marginBottom: 14,
-    padding: "10px 12px",
-    borderRadius: 12,
-    background: "rgba(255,255,255,.06)",
-    border: "1px solid rgba(220,235,255,.12)",
-    color: "#e9eefc",
-  },
-
-  info: {
-    padding: "12px 14px",
-    borderRadius: 12,
-    background: "rgba(255,255,255,.06)",
-    border: "1px solid rgba(220,235,255,.12)",
-    marginBottom: 14,
-    color: "#e9eefc",
-  },
+  toast: { marginBottom: 14, padding: "10px 12px", borderRadius: 12, background: "rgba(255,255,255,.06)", border: "1px solid rgba(220,235,255,.12)", color: "#e9eefc" },
+  info: { padding: "12px 14px", borderRadius: 12, background: "rgba(255,255,255,.06)", border: "1px solid rgba(220,235,255,.12)", marginBottom: 14, color: "#e9eefc" },
 
   section: { marginTop: 18 },
-  sectionHead: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: 12,
-    flexWrap: "wrap",
-    padding: "0 4px",
-  },
+  sectionHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", padding: "0 4px" },
   sectionTitle: { fontSize: 26, fontWeight: 950, color: "#e9eefc" },
   sectionSub: { marginTop: 6, fontSize: 13, opacity: 0.85, color: "rgba(233,238,252,.85)" },
 
-  panel: {
-    marginTop: 12,
-    borderRadius: 18,
-    border: "1px solid rgba(220,235,255,.14)",
-    background: "rgba(12,18,36,.65)",
-    boxShadow: "0 10px 30px rgba(0,0,0,.25)",
-    overflow: "hidden",
-  },
+  panel: { marginTop: 12, borderRadius: 18, border: "1px solid rgba(220,235,255,.14)", background: "rgba(12,18,36,.65)", boxShadow: "0 10px 30px rgba(0,0,0,.25)", overflow: "hidden" },
 
   cardBtn: {},
 
-  card: {
-    borderRadius: 18,
-    overflow: "hidden",
-    border: "1px solid rgba(220,235,255,.12)",
-    background: "rgba(255,255,255,.06)",
-    boxShadow: "0 10px 24px rgba(0,0,0,.22)",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-  },
+  card: { borderRadius: 18, overflow: "hidden", border: "1px solid rgba(220,235,255,.12)", background: "rgba(255,255,255,.06)", boxShadow: "0 10px 24px rgba(0,0,0,.22)", height: "100%", display: "flex", flexDirection: "column" },
 
-  /* ✅ bigger image space */
   imgWrap: { position: "relative", height: 150, background: "rgba(255,255,255,.04)" },
   img: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
 
-  stockPill: {
-    position: "absolute",
-    bottom: 10,
-    left: 10,
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: 900,
-    border: "1px solid rgba(220,235,255,.14)",
-    backdropFilter: "blur(6px)",
-  },
+  stockPill: { position: "absolute", bottom: 10, left: 10, padding: "6px 10px", borderRadius: 999, fontSize: 11, fontWeight: 900, border: "1px solid rgba(220,235,255,.14)", backdropFilter: "blur(6px)" },
 
-  /* ✅ increased size below image */
   body: { padding: 14, color: "#e9eefc", minHeight: 150 },
 
-  name: {
-    fontSize: 14,
-    fontWeight: 950,
-    color: "#e9eefc",
-    lineHeight: 1.2,
-    minHeight: 36,
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
-    overflow: "hidden",
-  },
+  name: { fontSize: 14, fontWeight: 950, color: "#e9eefc", lineHeight: 1.2, minHeight: 36, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
 
-  priceRow: {
-    marginTop: 10,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    gap: 8,
-  },
+  priceRow: { marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   price: { fontSize: 16, fontWeight: 950, color: "#ffd24a" },
   mrp: { fontSize: 11, color: "rgba(233,238,252,.65)", textDecoration: "line-through" },
 
-  controlsRow: {
-    marginTop: 12,
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 10,
-  },
+  controlsRow: { marginTop: 12, display: "grid", gridTemplateColumns: "1fr", gap: 10 },
 
-  addBtn: {
-    width: "100%",
-    padding: "11px 10px",
-    borderRadius: 12,
-    border: "1px solid rgba(74,140,255,.35)",
-    background: "rgba(74,140,255,.12)",
-    color: "#e9eefc",
-    fontWeight: 950,
-    fontSize: 13,
-  },
+  addBtn: { width: "100%", padding: "11px 10px", borderRadius: 12, border: "1px solid rgba(74,140,255,.35)", background: "rgba(74,140,255,.12)", color: "#e9eefc", fontWeight: 950, fontSize: 13 },
 
-  qtyBox: {
-    width: "100%",
-    display: "grid",
-    gridTemplateColumns: "46px 1fr 46px",
-    alignItems: "center",
-    borderRadius: 12,
-    overflow: "hidden",
-    border: "1px solid rgba(220,235,255,.14)",
-    background: "rgba(255,255,255,.06)",
-  },
-  qtyBtn: {
-    height: 42,
-    border: "none",
-    background: "rgba(255,255,255,.05)",
-    color: "#e9eefc",
-    fontSize: 20,
-    fontWeight: 950,
-    cursor: "pointer",
-  },
-  qtyValue: {
-    height: 42,
-    display: "grid",
-    placeItems: "center",
-    fontWeight: 950,
-    color: "#e9eefc",
-    fontSize: 14,
-  },
+  qtyBox: { width: "100%", display: "grid", gridTemplateColumns: "46px 1fr 46px", alignItems: "center", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(220,235,255,.14)", background: "rgba(255,255,255,.06)" },
+  qtyBtn: { height: 42, border: "none", background: "rgba(255,255,255,.05)", color: "#e9eefc", fontSize: 20, fontWeight: 950, cursor: "pointer" },
+  qtyValue: { height: 42, display: "grid", placeItems: "center", fontWeight: 950, color: "#e9eefc", fontSize: 14 },
 
   tapText: { fontSize: 12, color: "rgba(233,238,252,.75)" },
 
-  oos: {
-    width: "100%",
-    padding: "11px 10px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,90,90,.35)",
-    background: "rgba(255,90,90,.12)",
-    color: "#ffb4b4",
-    fontWeight: 950,
-    fontSize: 13,
-    textAlign: "center",
-  },
+  oos: { width: "100%", padding: "11px 10px", borderRadius: 12, border: "1px solid rgba(255,90,90,.35)", background: "rgba(255,90,90,.12)", color: "#ffb4b4", fontWeight: 950, fontSize: 13, textAlign: "center" },
 };
