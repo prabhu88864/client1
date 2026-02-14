@@ -85,34 +85,34 @@ export default function AdminDashboard() {
 
 
       const referalReq = axiosInstance
-        .get("/api/referal/admin")
+        .get("/api/referal")
         .then((r) => r.data?.total ?? (r.data?.referals?.length || 0))
         .catch(() => 0);
 
 
       const deliveryReq = axiosInstance
-        .get("/api/delivery/admin")
+        .get("/api/delivery")
         .then((r) => r.data?.total ?? (r.data?.deliveryCharges?.length || 0))
         .catch(() => 0);
      
         const withdrawReq = axiosInstance
-        .get("/api/withdraw/admin")
+        .get("/api/withdraw")
         .then((r) => r.data?.total ?? (r.data?.withdrawals?.length || 0))
         .catch(() => 0);
 
         const awardsReq = axiosInstance
-        .get("/api/awards/admin")
+        .get("/api/awards")
         .then((r) => r.data?.total ?? (r.data?.awards?.length || 0))
         .catch(() => 0);
         
 
         const achivementReq = axiosInstance
-        .get("/api/achivement/admin")
+        .get("/api/achivement")
         .then((r) => r.data?.total ?? (r.data?.achivements?.length || 0))
         .catch(() => 0);
 
         const treeReq = axiosInstance
-        .get("/api/tree/admin")
+        .get("/api/tree")
         .then((r) => r.data?.total ?? (r.data?.treeData?.length || 0))
         .catch(() => 0);
 
